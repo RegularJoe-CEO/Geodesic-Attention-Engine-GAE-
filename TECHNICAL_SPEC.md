@@ -81,6 +81,18 @@ Measured on H100 SXM, sequence length 4096, head dimension 64:
 | HBM Round-trips | 12 | 2 | -83% |
 | Memory Complexity | O(N²) | O(N) | Linear |
 | Tok/J | baseline | +23-37% | Measured |
+
+### Throughput Benchmarks (H100 80GB HBM3)
+
+| Seq Length | Time (ms) | TFLOPS | % H100 Peak | Memory Reduction |
+|-----------|-----------|--------|-------------|------------------|
+| 8,192 | 0.29 | 119.8 | 6.06% | 46.3% |
+| 16,384 | 0.94 | 146.2 | 7.39% | 84.7% |
+| 32,768 | 3.34 | 164.4 | 8.31% | 95.3% |
+| 65,536 | 12.90 | 170.4 | 8.61% | 98.4% |
+| 131,072 | 50.44 | 174.4 | 8.81% | 99.4% |
+
+Auto-tuned tile sizes with cuBLAS tensor core acceleration. Build: `cd cuda_src && nvcc -O3 -arch=sm_90 waller_kernel_bench.cu -lcublas -o waller_bench`
 | Determinism | Variable | Bit-exact | Reproducible |
 
 ## How to Reproduce
