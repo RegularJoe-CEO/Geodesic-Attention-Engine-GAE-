@@ -1,0 +1,33 @@
+[package]
+name = "ate"
+version = "1.0.0"
+edition = "2021"
+authors = ["Eric Waller <e@ewaller.com>"]
+description = "Geodesic Attention Engine - Physics-based AI compute optimization"
+license = "Proprietary"
+
+[features]
+default = ["std", "rayon"]
+std = []
+rayon = ["dep:rayon"]
+wgpu = ["dep:wgpu", "dep:bytemuck", "dep:pollster"]
+
+[dependencies]
+thiserror = "1.0"
+rayon = { version = "1.10", optional = true }
+wgpu = { version = "23.0", optional = true }
+bytemuck = { version = "1.14", features = ["derive"], optional = true }
+pollster = { version = "0.3", optional = true }
+
+[dev-dependencies]
+criterion = { version = "0.5", features = ["html_reports"] }
+rand = "0.8"
+approx = "0.5"
+
+[[bench]]
+name = "attention_benchmark"
+harness = false
+
+[profile.release]
+lto = true
+codegen-units = 1
