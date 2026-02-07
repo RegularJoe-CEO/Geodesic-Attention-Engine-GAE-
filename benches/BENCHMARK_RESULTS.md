@@ -65,4 +65,4 @@ O(1) Memory Scaling: GPU memory stays nearly constant regardless of sequence len
 99%+ Memory Reduction: At long sequences, GAE uses <1% of standard attention memory
 Enables Impossible Sequences: 262K-1M+ tokens on hardware that can't fit 64K with standard attention
 Deterministic: Bit-exact results across runs
-© 2026 Eric Waller - Patent Pending
+© 2026 Eric Waller

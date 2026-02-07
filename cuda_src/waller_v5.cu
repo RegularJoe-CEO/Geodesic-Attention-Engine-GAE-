@@ -210,7 +210,7 @@ int main() {
     printf("\n");
     printf("╔══════════════════════════════════════════════════════════════════╗\n");
     printf("║     WALLER OPERATOR V5 - TILED PARALLEL                          ║\n");
-    printf("║     Copyright 2026 Eric Waller - Patent Pending                  ║\n");
+    printf("║     Copyright 2026 Eric Waller                                   ║\n");
     printf("╚══════════════════════════════════════════════════════════════════╝\n");
     
     cudaDeviceProp prop;

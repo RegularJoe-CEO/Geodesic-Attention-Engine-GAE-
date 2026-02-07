@@ -207,7 +207,7 @@ int main() {
     printf("╔══════════════════════════════════════════════════════════════════╗\n");
     printf("║     WALLER OPERATOR V4 - PARALLEL REDUCTION                      ║\n");
     printf("║     Geodesic Attention Engine (GAE)                             ║\n");
-    printf("║     Copyright 2026 Eric Waller - Patent Pending                  ║\n");
+    printf("║     Copyright 2026 Eric Waller                                   ║\n");
     printf("╚══════════════════════════════════════════════════════════════════╝\n");
     
     int device;

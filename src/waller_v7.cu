@@ -198,7 +198,7 @@ void run_benchmark(int seq_len, int head_dim, int iters) {
 int main() {
     printf("\n╔══════════════════════════════════════════════════════════════════╗\n");
     printf("║     WALLER OPERATOR V7 - TILED cuBLAS                            ║\n");
-    printf("║     Copyright 2026 Eric Waller - Patent Pending                  ║\n");
+    printf("║     Copyright 2026 Eric Waller                                   ║\n");
     printf("╚══════════════════════════════════════════════════════════════════╝\n");
     
     cudaDeviceProp prop;

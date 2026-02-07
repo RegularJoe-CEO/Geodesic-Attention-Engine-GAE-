@@ -336,7 +336,7 @@ int main(int argc, char** argv) {
     printf("╔══════════════════════════════════════════════════════════════════╗\n");
     printf("║     WALLER OPERATOR V2 - TILED PARALLEL REDUCTION                ║\n");
     printf("║     Geodesic Attention Engine (GAE)                             ║\n");
-    printf("║     Copyright 2026 Eric Waller - Patent Pending                  ║\n");
+    printf("║     Copyright 2026 Eric Waller                                   ║\n");
     printf("╚══════════════════════════════════════════════════════════════════╝\n");
     
     int device;
