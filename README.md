@@ -91,4 +91,4 @@ AGPL-3.0
 Contact
 Eric Waller — e@ewaller.com — https://luxiedge.com
 
-© 2026 Eric Waller 
+© 2026 Eric Waller
