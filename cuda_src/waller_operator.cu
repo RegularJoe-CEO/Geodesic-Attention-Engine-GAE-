@@ -1,7 +1,7 @@
 // Waller Operator - CUDA Implementation
 // Geodesic Attention Engine (GAE)
 // Copyright 2026 Eric Waller - Proprietary
-// EXTREME STRESS TEST - O(1) Memory Proof
+// O(1) Memory Proof
 
 #include <cuda_runtime.h>
 #include <stdio.h>
@@ -278,15 +278,15 @@ int main() {
     printf("\n");
     printf("╔═══════════════════════════════════════════════════════════════════════════╗\n");
     printf("║                                                                           ║\n");
-    printf("║     █████╗ ████████╗███████╗    ███████╗██╗  ██╗████████╗██████╗ ███████╗ ║\n");
-    printf("║    ██╔══██╗╚══██╔══╝██╔════╝    ██╔════╝╚██╗██╔╝╚══██╔══╝██╔══██╗██╔════╝ ║\n");
-    printf("║    ███████║   ██║   █████╗      █████╗   ╚███╔╝    ██║   ██████╔╝█████╗   ║\n");
-    printf("║    ██╔══██║   ██║   ██╔══╝      ██╔══╝   ██╔██╗    ██║   ██╔══██╗██╔══╝   ║\n");
-    printf("║    ██║  ██║   ██║   ███████╗    ███████╗██╔╝ ██╗   ██║   ██║  ██║███████╗ ║\n");
-    printf("║    ╚═╝  ╚═╝   ╚═╝   ╚══════╝    ╚══════╝╚═╝  ╚═╝   ╚═╝   ╚═╝  ╚═╝╚══════╝ ║\n");
+    printf("║     ██████╗  █████╗ ███████╗                                            ║\n");
+    printf("║    ██╔════╝ ██╔══██╗██╔════╝                                            ║\n");
+    printf("║    ██║  ███╗███████║█████╗                                              ║\n");
+    printf("║    ██║   ██║██╔══██║██╔══╝                                              ║\n");
+    printf("║    ╚██████╔╝██║  ██║███████╗                                            ║\n");
+    printf("║     ╚═════╝ ╚═╝  ╚═╝╚══════╝                                            ║\n");
     printf("║                                                                           ║\n");
-    printf("║     GEODESIC ATTENTION ENGINE - EXTREME BENCHMARK                        ║\n");
-    printf("║     Waller Operator: O(1) Memory Proof                                    ║\n");
+    printf("║     Geodesic Attention Engine                                          ║\n");
+    printf("║     Waller Kernel Benchmark                                           ║\n");
     printf("║     Copyright 2026 Eric Waller - Every Joule Computes                     ║\n");
     printf("║                                                                           ║\n");
     printf("╚═══════════════════════════════════════════════════════════════════════════╝\n");
