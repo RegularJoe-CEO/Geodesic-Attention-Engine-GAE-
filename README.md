@@ -19,6 +19,19 @@ GAE computes **exact transformer attention** with fewer memory operations. The F
 
 **GAE enables 1M+ token sequences on hardware that cannot fit 64K with standard attention.**
 
+### Throughput: Auto-Tuned Waller Kernel on H100
+
+| Seq Length | TFLOPS | Time (ms) | Mem Reduction |
+|-----------|--------|-----------|---------------|
+| 8,192 | 119.8 | 0.29 | 46.3% |
+| 16,384 | 146.2 | 0.94 | 84.7% |
+| 32,768 | 164.4 | 3.34 | 95.3% |
+| 65,536 | 170.4 | 12.90 | 98.4% |
+| 131,072 | **174.4** | 50.44 | 99.4% |
+
+**Peak: 174.4 TFLOPS** with auto-tuned tile sizes and cuBLAS tensor core acceleration.
+
+
 ---
 
 ## How It Works
