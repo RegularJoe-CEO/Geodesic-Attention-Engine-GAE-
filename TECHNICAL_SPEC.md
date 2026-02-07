@@ -119,7 +119,7 @@ Citation
 
 Waller, E. (2026). Geodesic Attention Engine (GAE): Minimum-Energy Path Through Transformer Attention. Zenodo. https://doi.org/10.5281/zenodo.18512336
 License
-GNU GPL v3.0
+AGPL-3.0
 
 Contact
 Eric Waller
