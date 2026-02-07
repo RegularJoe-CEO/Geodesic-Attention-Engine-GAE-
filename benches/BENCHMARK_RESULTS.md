@@ -66,3 +66,24 @@ O(1) Memory Scaling: GPU memory stays nearly constant regardless of sequence len
 Enables Impossible Sequences: 262K-1M+ tokens on hardware that can't fit 64K with standard attention
 Deterministic: Bit-exact results across runs
 © 2026 Eric Waller
+
+---
+
+## Waller Kernel: Auto-Tuned Tile Size (174 TFLOPS)
+
+Production kernel with auto-tuned tile size selection. cuBLAS tensor core acceleration with fused online softmax.
+
+**Command:**
+```bash
+cd cuda_src && nvcc -O3 -arch=sm_90 waller_kernel_bench.cu -lcublas -o waller_bench && ./waller_bench
+Results:
+
+Seq Length	Tile	Time (ms)	TFLOPS	% H100 Peak	Mem Reduction
+2,048	512	0.17	12.6	0.64%	68.8%
+4,096	2,048	0.12	71.7	3.62%	43.1%
+8,192	4,096	0.29	119.8	6.06%	46.3%
+16,384	4,096	0.94	146.2	7.39%	84.7%
+32,768	4,096	3.34	164.4	8.31%	95.3%
+65,536	4,096	12.90	170.4	8.61%	98.4%
+131,072	4,096	50.44	174.4	8.81%	99.4%
+Peak: 174.4 TFLOPS at 131K sequence length on NVIDIA H100 80GB HBM3.
