@@ -61,8 +61,8 @@ GAE is not an approximation—it computes exact attention. Not sparse—every qu
 
 ## Citation
 
-If you use GAE in your research, please cite:
-Waller, E. (2026). Geodesic Attention Engine (GAE): Minimum-Energy Path Through Transformer Attention. Zenodo. https://doi.org/10.5281/zenodo.18512336
+See repository for citation format.
+
 ## License
 
 AGPL-3.0
