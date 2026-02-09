@@ -25,7 +25,7 @@
 #define K_CHUNK   16
 #define N_CHUNKS  (D_HEAD / K_CHUNK)
 #define WARPGROUP 128
-#define BLOCK_THREADS 256
+#define BLOCK_THREADS 128
 #define PV_K_CHUNKS (N_TILE / K_CHUNK)
 #define O_COL_TILES (D_HEAD / N_TILE)
 #define TILE_A_BYTES (K_CHUNK * M_TILE * 2)
@@ -149,7 +149,7 @@ void mbar_arrive(uint64_t* mbar) {
 }
 
 // Kernel: same as 30 TFLOPS baseline but sB loaded via TMA
-__global__ void __launch_bounds__(256, 1)
+__global__ void __launch_bounds__(128, 1)
 gae_tma_kernel(const half* __restrict__ Q,
                const half* __restrict__ K,
                const half* __restrict__ V,
@@ -195,7 +195,7 @@ gae_tma_kernel(const half* __restrict__ Q,
 
     int tid = threadIdx.x;
     bool is_compute = tid < WARPGROUP;
-    bool is_tma = tid == WARPGROUP;
+    bool is_tma = tid == 0;
     int W   = tid / 32;
     int L   = tid % 32;
     int col_tiles = seq_len / N_TILE;
