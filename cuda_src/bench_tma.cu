@@ -190,13 +190,9 @@ gae_tma_kernel(const half* __restrict__ Q,
     // Init mbarriers (thread 0 only) - count=1, arrive once to set initial phase
     if (tid == 0) {
         mbar_init(mbar0, 1);
-        mbar_arrive(mbar0);
         mbar_init(mbar1, 1);
-        mbar_arrive(mbar1);
         mbar_init(mbar2, 1);
-        mbar_arrive(mbar2);
         mbar_init(mbar3, 1);
-        mbar_arrive(mbar3);
     }
     __syncthreads();
 
