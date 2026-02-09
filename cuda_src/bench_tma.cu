@@ -1,3 +1,13 @@
+// Copyright © 2025-2026 Eric Waller. All rights reserved.
+// Licensed under the GNU Affero General Public License v3.0 (AGPL-3.0).
+// See LICENSE file in the repository root.
+//
+// Original contributions: Deterministic single-kernel fused attention,
+// bare-metal Hopper (WGMMA/TMA) execution, energy-efficient design.
+//
+// Builds on: Scaled dot-product attention (Vaswani et al., 2017),
+// Online softmax (Milakov & Gimelshein, 2018),
+// Tiled fused attention (Dao et al., 2022).
 // TMA bring-up: single warpgroup, TMA for sB (K operand) only
 // Everything else identical to the 30 TFLOPS baseline
 #include <cstdio>
