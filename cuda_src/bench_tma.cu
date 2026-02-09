@@ -15,6 +15,7 @@
 #define K_CHUNK   16
 #define N_CHUNKS  (D_HEAD / K_CHUNK)
 #define WARPGROUP 128
+#define BLOCK_THREADS 256
 #define PV_K_CHUNKS (N_TILE / K_CHUNK)
 #define O_COL_TILES (D_HEAD / N_TILE)
 #define TILE_A_BYTES (K_CHUNK * M_TILE * 2)
@@ -138,13 +139,15 @@ void mbar_arrive(uint64_t* mbar) {
 }
 
 // Kernel: same as 30 TFLOPS baseline but sB loaded via TMA
-__global__ void __launch_bounds__(128, 1)
+__global__ void __launch_bounds__(256, 1)
 gae_tma_kernel(const half* __restrict__ Q,
                const half* __restrict__ K,
                const half* __restrict__ V,
                float* __restrict__ O,
                const __grid_constant__ CUtensorMap tma_K,
+               const __grid_constant__ CUtensorMap tma_V,
                  int seq_len, int num_heads) {
+    asm volatile(".maxnreg 128;\n");
     int row_tile = blockIdx.x;
     int head     = blockIdx.y;
     int batch    = blockIdx.z;
@@ -157,34 +160,59 @@ gae_tma_kernel(const half* __restrict__ Q,
     float* myO      = O + qkv_off + (long long)row_tile * M_TILE * D_HEAD;
 
     extern __shared__ char smem_raw[];
-    // Layout: sQ(16384) | sA(2048) | sB(2048) | mbar(16) -- sB must be 128B aligned
+    // Layout: sQ(16384) | sA(2048) | sB0(2048) | sB1(2048) | mbar0(16) | mbar1(16) | mbar2(16) | mbar3(16)
+    // sB buffers must be 128B aligned
     // sQ_full at offset 0: 16384 bytes (128-aligned: yes)
     // sA at offset 16384: 2048 bytes
-    // sB at offset 18432: 2048 bytes (18432 = 144*128, 128-aligned: yes)
-    // mbar at offset 20480: 8 bytes
+    // sB0 at offset 18432: 2048 bytes (18432 = 144*128, 128-aligned: yes)
+    // sB1 at offset 20480: 2048 bytes (20480 = 160*128, 128-aligned: yes)
+    // mbar0 at offset 22528: 16 bytes
+    // mbar1 at offset 22544: 16 bytes
+    // mbar2 at offset 22560: 16 bytes
+    // mbar3 at offset 22576: 16 bytes
     half* sQ_full = reinterpret_cast<half*>(smem_raw);
     half* sA      = reinterpret_cast<half*>(smem_raw + SMEM_Q_BYTES);
-    half* sB      = reinterpret_cast<half*>(smem_raw + SMEM_Q_BYTES + TILE_A_BYTES);
-    uint64_t* mbar = reinterpret_cast<uint64_t*>(smem_raw + SMEM_Q_BYTES + TILE_A_BYTES + TILE_B_BYTES);
+    half* sB0     = reinterpret_cast<half*>(smem_raw + SMEM_Q_BYTES + TILE_A_BYTES);
+    half* sB1     = reinterpret_cast<half*>(smem_raw + SMEM_Q_BYTES + TILE_A_BYTES + TILE_B_BYTES);
+    struct alignas(16) Mbarrier {
+        uint64_t data[2];
+    };
+    Mbarrier* mbarriers = reinterpret_cast<Mbarrier*>(
+        smem_raw + SMEM_Q_BYTES + TILE_A_BYTES + 2 * TILE_B_BYTES);
+    uint64_t* mbar0 = mbarriers[0].data;
+    uint64_t* mbar1 = mbarriers[1].data;
+    uint64_t* mbar2 = mbarriers[2].data;
+    uint64_t* mbar3 = mbarriers[3].data;
 
     int tid = threadIdx.x;
+    bool is_compute = tid < WARPGROUP;
+    bool is_tma = tid == WARPGROUP;
     int W   = tid / 32;
     int L   = tid % 32;
     int col_tiles = seq_len / N_TILE;
 
-    // Init mbarrier (thread 0 only) - count=0 means only TMA tx completes it
+    // Init mbarriers (thread 0 only) - count=1, arrive once to set initial phase
     if (tid == 0) {
-        mbar_init(mbar, 1);
+        mbar_init(mbar0, 1);
+        mbar_arrive(mbar0);
+        mbar_init(mbar1, 1);
+        mbar_arrive(mbar1);
+        mbar_init(mbar2, 1);
+        mbar_arrive(mbar2);
+        mbar_init(mbar3, 1);
+        mbar_arrive(mbar3);
     }
     __syncthreads();
 
     // Load Q into sQ_full (swizzled, one-time)
-    for (int c = 0; c < N_CHUNKS; c++) {
-        for (int i = tid; i < K_CHUNK * M_TILE; i += WARPGROUP) {
-            int row = i / K_CHUNK;
-            int col = i % K_CHUNK;
-            uint32_t dst = swizzle_b128(col, row);
-            sQ_full[c * (K_CHUNK * M_TILE) + dst / 2] = myQ[row * D_HEAD + c * K_CHUNK + col];
+    if (is_compute) {
+        for (int c = 0; c < N_CHUNKS; c++) {
+            for (int i = tid; i < K_CHUNK * M_TILE; i += WARPGROUP) {
+                int row = i / K_CHUNK;
+                int col = i % K_CHUNK;
+                uint32_t dst = swizzle_b128(col, row);
+                sQ_full[c * (K_CHUNK * M_TILE) + dst / 2] = myQ[row * D_HEAD + c * K_CHUNK + col];
+            }
         }
     }
     __syncthreads();
@@ -195,136 +223,200 @@ gae_tma_kernel(const half* __restrict__ Q,
     float row_sum_1 = 0.0f;
 
     float o_acc[O_COL_TILES][32];
-    for (int ot = 0; ot < O_COL_TILES; ot++)
-        for (int i = 0; i < 32; i++)
-            o_acc[ot][i] = 0.0f;
-
-    int phase = 0;
+    if (is_compute) {
+        for (int ot = 0; ot < O_COL_TILES; ot++)
+            for (int i = 0; i < 32; i++)
+                o_acc[ot][i] = 0.0f;
+    }
 
     for (int ct = 0; ct < col_tiles; ct++) {
         const half* myV_tile = myV + (long long)ct * N_TILE * D_HEAD;
 
         // Phase 1: S = Q * K^T
         float s_accum[32];
-        for (int i = 0; i < 32; i++) s_accum[i] = 0.0f;
+        if (is_compute) {
+            for (int i = 0; i < 32; i++) s_accum[i] = 0.0f;
+        }
+
+        int phase0 = 0;
+        int phase1 = 0;
+        int cur = 0;
+        int next = 1;
+
+        if (is_tma) {
+            mbar_expect_tx(mbar0, TILE_B_BYTES);
+            tma_load_2d(sB0, &tma_K, 0, (int)(bh * seq_len + ct * N_TILE), mbar0);
+        }
+        __syncthreads();
 
         for (int c = 0; c < N_CHUNKS; c++) {
-            // TMA load K chunk into sB
-            // K global layout: [batch*heads*seq_len, D_HEAD] row-major
-            // For chunk c of col_tile ct:
-            //   row range: ct*N_TILE .. ct*N_TILE+N_TILE-1
-            //   col range: c*K_CHUNK .. c*K_CHUNK+K_CHUNK-1
-            // TMA coords: (col_start, row_start) = (c*K_CHUNK, bh*seq_len + ct*N_TILE)
-            if (tid == 0) {
-                mbar_expect_tx(mbar, TILE_B_BYTES);
-                  tma_load_2d(sB, &tma_K, c * K_CHUNK, (int)(bh * seq_len + ct * N_TILE), mbar);
+            half* sB_cur = (cur == 0) ? sB0 : sB1;
+            uint64_t* mbar_cur = (cur == 0) ? mbar0 : mbar1;
+            uint64_t* mbar_next = (next == 0) ? mbar0 : mbar1;
+
+            if (is_compute) {
+                mbar_wait(mbar_cur, (cur == 0) ? phase0 : phase1);
+                if (cur == 0) {
+                    phase0 ^= 1;
+                } else {
+                    phase1 ^= 1;
+                }
             }
-            __syncthreads();  // ensure expect_tx is visible to all threads
-            mbar_wait(mbar, phase);
-            phase ^= 1;
 
-            half* sQ_chunk = sQ_full + c * (K_CHUNK * M_TILE);
+            if (is_tma && c + 1 < N_CHUNKS) {
+                mbar_expect_tx(mbar_next, TILE_B_BYTES);
+                tma_load_2d((next == 0) ? sB0 : sB1,
+                            &tma_K,
+                            (c + 1) * K_CHUNK,
+                            (int)(bh * seq_len + ct * N_TILE),
+                            mbar_next);
+            }
 
-            asm volatile("wgmma.fence.sync.aligned;\n");
-            uint64_t dA = make_desc(sQ_chunk);
-            uint64_t dB = make_desc(sB);
-            wgmma_m64n64k16(s_accum, dA, dB);
-            asm volatile("wgmma.commit_group.sync.aligned;\n");
-            asm volatile("wgmma.wait_group.sync.aligned 0;\n");
-            __syncthreads();
+            if (is_compute) {
+                half* sQ_chunk = sQ_full + c * (K_CHUNK * M_TILE);
+
+                asm volatile("wgmma.fence.sync.aligned;\n");
+                uint64_t dA = make_desc(sQ_chunk);
+                uint64_t dB = make_desc(sB_cur);
+                wgmma_m64n64k16(s_accum, dA, dB);
+                asm volatile("wgmma.commit_group.sync.aligned;\n");
+                asm volatile("wgmma.wait_group.sync.aligned 0;\n");
+            }
+            cur ^= 1;
+            next ^= 1;
         }
 
         float p_local[32];
-        #pragma unroll
-        for (int i = 0; i < 32; i++) p_local[i] = s_accum[i];
+        if (is_compute) {
+            #pragma unroll
+            for (int i = 0; i < 32; i++) p_local[i] = s_accum[i];
 
-        // Phase 2: Online softmax
-        float local_max_0 = -1e30f;
-        float local_max_1 = -1e30f;
-        #pragma unroll
-        for (int i = 0; i < 16; i++) {
-            local_max_0 = fmaxf(local_max_0, p_local[i]);
-            local_max_1 = fmaxf(local_max_1, p_local[16 + i]);
-        }
-        for (int mask = 2; mask >= 1; mask >>= 1) {
-            local_max_0 = fmaxf(local_max_0, __shfl_xor_sync(0xffffffff, local_max_0, mask));
-            local_max_1 = fmaxf(local_max_1, __shfl_xor_sync(0xffffffff, local_max_1, mask));
-        }
-
-        float new_max_0 = fmaxf(row_max_0, local_max_0);
-        float new_max_1 = fmaxf(row_max_1, local_max_1);
-        float scale_0 = expf(row_max_0 - new_max_0);
-        float scale_1 = expf(row_max_1 - new_max_1);
-
-        row_sum_0 *= scale_0;
-        row_sum_1 *= scale_1;
-        #pragma unroll
-        for (int ot = 0; ot < O_COL_TILES; ot++) {
+            // Phase 2: Online softmax
+            float local_max_0 = -1e30f;
+            float local_max_1 = -1e30f;
+            #pragma unroll
             for (int i = 0; i < 16; i++) {
-                o_acc[ot][i]      *= scale_0;
-                o_acc[ot][16 + i] *= scale_1;
+                local_max_0 = fmaxf(local_max_0, p_local[i]);
+                local_max_1 = fmaxf(local_max_1, p_local[16 + i]);
             }
-        }
+            for (int mask = 2; mask >= 1; mask >>= 1) {
+                local_max_0 = fmaxf(local_max_0, __shfl_xor_sync(0xffffffff, local_max_0, mask));
+                local_max_1 = fmaxf(local_max_1, __shfl_xor_sync(0xffffffff, local_max_1, mask));
+            }
 
-        float local_sum_0 = 0.0f;
-        float local_sum_1 = 0.0f;
-        #pragma unroll
-        for (int i = 0; i < 16; i++) {
-            p_local[i]      = expf(p_local[i]      - new_max_0);
-            p_local[16 + i] = expf(p_local[16 + i] - new_max_1);
-            local_sum_0 += p_local[i];
-            local_sum_1 += p_local[16 + i];
-        }
-        for (int mask = 2; mask >= 1; mask >>= 1) {
-            local_sum_0 += __shfl_xor_sync(0xffffffff, local_sum_0, mask);
-            local_sum_1 += __shfl_xor_sync(0xffffffff, local_sum_1, mask);
-        }
+            float new_max_0 = fmaxf(row_max_0, local_max_0);
+            float new_max_1 = fmaxf(row_max_1, local_max_1);
+            float scale_0 = expf(row_max_0 - new_max_0);
+            float scale_1 = expf(row_max_1 - new_max_1);
 
-        row_sum_0 += local_sum_0;
-        row_sum_1 += local_sum_1;
-        row_max_0 = new_max_0;
-        row_max_1 = new_max_1;
-
-        // Phase 3: O += P * V (thread-level loads for V, unchanged)
-        for (int ot = 0; ot < O_COL_TILES; ot++) {
-            for (int kc = 0; kc < PV_K_CHUNKS; kc++) {
-                store_p_chunk_to_smem(sA, p_local, kc, tid);
-
-                for (int i = tid; i < K_CHUNK * N_TILE; i += WARPGROUP) {
-                    int jl = i / K_CHUNK;
-                    int kl = i % K_CHUNK;
-                    int v_row = kc * K_CHUNK + kl;
-                    int v_col = ot * N_TILE + jl;
-                    sB[swizzle_b128(kl, jl) / 2] = myV_tile[v_row * D_HEAD + v_col];
+            row_sum_0 *= scale_0;
+            row_sum_1 *= scale_1;
+            #pragma unroll
+            for (int ot = 0; ot < O_COL_TILES; ot++) {
+                for (int i = 0; i < 16; i++) {
+                    o_acc[ot][i]      *= scale_0;
+                    o_acc[ot][16 + i] *= scale_1;
                 }
-                __syncthreads();
-                asm volatile("wgmma.fence.sync.aligned;\n");
-                uint64_t dA2 = make_desc(sA);
-                uint64_t dB2 = make_desc(sB);
-                wgmma_m64n64k16(o_acc[ot], dA2, dB2);
-                asm volatile("wgmma.commit_group.sync.aligned;\n");
-                asm volatile("wgmma.wait_group.sync.aligned 0;\n");
-                __syncthreads();
+            }
+
+            float local_sum_0 = 0.0f;
+            float local_sum_1 = 0.0f;
+            #pragma unroll
+            for (int i = 0; i < 16; i++) {
+                p_local[i]      = expf(p_local[i]      - new_max_0);
+                p_local[16 + i] = expf(p_local[16 + i] - new_max_1);
+                local_sum_0 += p_local[i];
+                local_sum_1 += p_local[16 + i];
+            }
+            for (int mask = 2; mask >= 1; mask >>= 1) {
+                local_sum_0 += __shfl_xor_sync(0xffffffff, local_sum_0, mask);
+                local_sum_1 += __shfl_xor_sync(0xffffffff, local_sum_1, mask);
+            }
+
+            row_sum_0 += local_sum_0;
+            row_sum_1 += local_sum_1;
+            row_max_0 = new_max_0;
+            row_max_1 = new_max_1;
+        }
+
+        // Phase 3: O += P * V (TMA double-buffer for V)
+        for (int ot = 0; ot < O_COL_TILES; ot++) {
+            int v_phase0 = 0;
+            int v_phase1 = 0;
+            int v_cur = 0;
+            int v_next = 1;
+
+            if (is_tma) {
+                mbar_expect_tx(mbar2, TILE_B_BYTES);
+                tma_load_2d(sB0,
+                            &tma_V,
+                            ot * N_TILE,
+                            (int)(bh * seq_len + ct * N_TILE),
+                            mbar2);
+            }
+            __syncthreads();
+
+            for (int kc = 0; kc < PV_K_CHUNKS; kc++) {
+                if (is_compute) {
+                    store_p_chunk_to_smem(sA, p_local, kc, tid);
+                    asm volatile("bar.sync 1, 128;\n");
+                }
+
+                half* sB_cur = (v_cur == 0) ? sB0 : sB1;
+                uint64_t* v_mbar_cur = (v_cur == 0) ? mbar2 : mbar3;
+                uint64_t* v_mbar_next = (v_next == 0) ? mbar2 : mbar3;
+
+                if (is_compute) {
+                    mbar_wait(v_mbar_cur, (v_cur == 0) ? v_phase0 : v_phase1);
+                    if (v_cur == 0) {
+                        v_phase0 ^= 1;
+                    } else {
+                        v_phase1 ^= 1;
+                    }
+                }
+
+                if (is_tma && kc + 1 < PV_K_CHUNKS) {
+                    mbar_expect_tx(v_mbar_next, TILE_B_BYTES);
+                    tma_load_2d((v_next == 0) ? sB0 : sB1,
+                                &tma_V,
+                                ot * N_TILE,
+                                (int)(bh * seq_len + ct * N_TILE + (kc + 1) * K_CHUNK),
+                                v_mbar_next);
+                }
+
+                if (is_compute) {
+                    asm volatile("wgmma.fence.sync.aligned;\n");
+                    uint64_t dA2 = make_desc(sA);
+                    uint64_t dB2 = make_desc(sB_cur);
+                    wgmma_m64n64k16(o_acc[ot], dA2, dB2);
+                    asm volatile("wgmma.commit_group.sync.aligned;\n");
+                    asm volatile("wgmma.wait_group.sync.aligned 0;\n");
+                }
+
+                v_cur ^= 1;
+                v_next ^= 1;
             }
         }
     }
 
     // Final normalization
-    float inv_sum_0 = 1.0f / row_sum_0;
-    float inv_sum_1 = 1.0f / row_sum_1;
+    if (is_compute) {
+        float inv_sum_0 = 1.0f / row_sum_0;
+        float inv_sum_1 = 1.0f / row_sum_1;
 
-    for (int ot = 0; ot < O_COL_TILES; ot++) {
-        int base_m = W * 16;
-        int r_in_group = L / 4;
-        int col_pair   = L % 4;
-        for (int rr = 0; rr < 2; rr++) {
-            int m = base_m + r_in_group + rr * 8;
-            float inv = (rr == 0) ? inv_sum_0 : inv_sum_1;
-            for (int cp = 0; cp < 2; cp++) {
-                int col = col_pair * 2 + cp;
-                int reg_idx = rr * 16 + col_pair * 2 + cp;
-                if (reg_idx < 32 && m < M_TILE)
-                    myO[m * D_HEAD + ot * N_TILE + col] = o_acc[ot][reg_idx] * inv;
+        for (int ot = 0; ot < O_COL_TILES; ot++) {
+            int base_m = W * 16;
+            int r_in_group = L / 4;
+            int col_pair   = L % 4;
+            for (int rr = 0; rr < 2; rr++) {
+                int m = base_m + r_in_group + rr * 8;
+                float inv = (rr == 0) ? inv_sum_0 : inv_sum_1;
+                for (int cp = 0; cp < 2; cp++) {
+                    int col = col_pair * 2 + cp;
+                    int reg_idx = rr * 16 + col_pair * 2 + cp;
+                    if (reg_idx < 32 && m < M_TILE)
+                        myO[m * D_HEAD + ot * N_TILE + col] = o_acc[ot][reg_idx] * inv;
+                }
             }
         }
     }
@@ -354,6 +446,46 @@ CUtensorMap create_tma_desc_K(const half* K_ptr, int total_rows, int total_cols)
         CU_TENSOR_MAP_DATA_TYPE_FLOAT16,
         2,                                    // rank
         (void*)K_ptr,                         // global address
+        globalDim,                            // global dimensions
+        globalStride,                         // global strides (bytes, starting from dim 1)
+        boxDim,                               // box dimensions
+        elemStride,                           // element strides
+        CU_TENSOR_MAP_INTERLEAVE_NONE,
+        CU_TENSOR_MAP_SWIZZLE_128B,
+        CU_TENSOR_MAP_L2_PROMOTION_NONE,
+        CU_TENSOR_MAP_FLOAT_OOB_FILL_NONE
+    );
+
+    if (err != CUDA_SUCCESS) {
+        const char* errStr;
+        cuGetErrorString(err, &errStr);
+        printf("cuTensorMapEncodeTiled FAILED: %s\n", errStr);
+    } else {
+        printf("TMA descriptor created OK\n");
+    }
+    return tmap;
+}
+
+// Host: create TMA descriptor for V tensor
+CUtensorMap create_tma_desc_V(const half* V_ptr, int total_rows, int total_cols) {
+    CUtensorMap tmap;
+    // V is [total_rows x total_cols] row-major, fp16
+    // TMA tile: N_TILE cols x K_CHUNK rows = 64 x 16
+    // Global dims: [total_cols, total_rows] (TMA uses column-major convention)
+    // Global strides: [sizeof(half), total_cols * sizeof(half)] = [2, 256]
+    // Box dims: [N_TILE, K_CHUNK] = [64, 16]
+    // Swizzle: 128B
+
+    uint64_t globalDim[2]    = {(uint64_t)total_cols, (uint64_t)total_rows};
+    uint64_t globalStride[1] = {(uint64_t)(total_cols * sizeof(half))};
+    uint32_t boxDim[2]       = {N_TILE, K_CHUNK};  // 64 x 16
+    uint32_t elemStride[2]   = {1, 1};
+
+    CUresult err = cuTensorMapEncodeTiled(
+        &tmap,
+        CU_TENSOR_MAP_DATA_TYPE_FLOAT16,
+        2,                                    // rank
+        (void*)V_ptr,                         // global address
         globalDim,                            // global dimensions
         globalStride,                         // global strides (bytes, starting from dim 1)
         boxDim,                               // box dimensions
@@ -425,16 +557,17 @@ int main() {
         cudaMemcpy(dV, hBuf, qkv_bytes, cudaMemcpyHostToDevice);
         free(hBuf);
 
-        // Create TMA descriptor for K
+        // Create TMA descriptors for K and V
         CUtensorMap h_tma_K = create_tma_desc_K(dK, total_rows, total_cols);
+        CUtensorMap h_tma_V = create_tma_desc_V(dV, total_rows, total_cols);
         cudaDeviceSynchronize();
 
 
         dim3 grid(row_tiles, heads, batch);
-        dim3 block(WARPGROUP);
+        dim3 block(BLOCK_THREADS);
 
         for (int i = 0; i < warmup; i++)
-            gae_tma_kernel<<<grid, block, SMEM_TOTAL>>>(dQ, dK, dV, dO, h_tma_K, S, heads);
+            gae_tma_kernel<<<grid, block, SMEM_TOTAL>>>(dQ, dK, dV, dO, h_tma_K, h_tma_V, S, heads);
         cudaDeviceSynchronize();
 
         cudaError_t err = cudaGetLastError();
@@ -449,7 +582,7 @@ int main() {
         cudaEventCreate(&t1);
         cudaEventRecord(t0);
         for (int i = 0; i < runs; i++)
-            gae_tma_kernel<<<grid, block, SMEM_TOTAL>>>(dQ, dK, dV, dO, h_tma_K, S, heads);
+            gae_tma_kernel<<<grid, block, SMEM_TOTAL>>>(dQ, dK, dV, dO, h_tma_K, h_tma_V, S, heads);
         cudaEventRecord(t1);
         cudaEventSynchronize(t1);
 
