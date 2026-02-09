@@ -234,6 +234,11 @@ gae_tma_kernel(const half* __restrict__ Q,
                 o_acc[ot][i] = 0.0f;
     }
 
+    int phase0 = 0;
+    int phase1 = 0;
+    int v_phase0 = 0;
+    int v_phase1 = 0;
+
     for (int ct = 0; ct < col_tiles; ct++) {
         const half* myV_tile = myV + (long long)ct * N_TILE * D_HEAD;
 
@@ -243,8 +248,6 @@ gae_tma_kernel(const half* __restrict__ Q,
             for (int i = 0; i < 32; i++) s_accum[i] = 0.0f;
         }
 
-        int phase0 = 0;
-        int phase1 = 0;
         int cur = 0;
         int next = 1;
 
@@ -346,8 +349,6 @@ gae_tma_kernel(const half* __restrict__ Q,
 
         // Phase 3: O += P * V (TMA double-buffer for V)
         for (int ot = 0; ot < O_COL_TILES; ot++) {
-            int v_phase0 = 0;
-            int v_phase1 = 0;
             int v_cur = 0;
             int v_next = 1;
 
