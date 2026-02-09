@@ -171,7 +171,7 @@ waller_v5_kernel(const half* __restrict__ Q,
         }
         __syncthreads();
         wgmma_fence();
-        if (tid==0) printf("DBG descA1=%016llx descB1=%016llx\n", (unsigned long long)make_desc(sA), (unsigned long long)make_desc(sB));
+//        if (tid==0) printf("DBG descA1=%016llx descB1=%016llx\n", (unsigned long long)make_desc(sA), (unsigned long long)make_desc(sB));
 
         wgmma_m64n64k16(s_accum, make_desc(sA), make_desc(sB));
         wgmma_commit();
@@ -219,12 +219,12 @@ if (tid == 0 && kc == 0 && ot == 0 && P_dump) {
             half sA_val = *reinterpret_cast<half*>(reinterpret_cast<char*>(sA) + swizzle_b128(j, m));
             float p_val = P_dump[m * N_TILE + j];
             if (__half2float(sA_val) != __half2float(__float2half(p_val))) {
-                if (mismatches < 5) printf("MISMATCH row=%d col=%d sA=%.6f P_fp16=%.6f\n", m, j, __half2float(sA_val), __half2float(__float2half(p_val)));
+//                if (mismatches < 5) printf("MISMATCH row=%d col=%d sA=%.6f P_fp16=%.6f\n", m, j, __half2float(sA_val), __half2float(__float2half(p_val)));
                 mismatches++;
             }
         }
     }
-    printf("sA vs P_dump kc=0: %d / %d mismatches\n", mismatches, M_TILE * K_CHUNK);
+//    printf("sA vs P_dump kc=0: %d / %d mismatches\n", mismatches, M_TILE * K_CHUNK);
 }
             for (int i = tid; i < K_CHUNK * N_TILE; i += WARPGROUP) {
                 int jl = i / N_TILE, n = i % N_TILE;
@@ -233,14 +233,14 @@ if (tid == 0 && kc == 0 && ot == 0 && P_dump) {
             }
 
               if (tid==0 && kc==0 && ot==0) {
-                  printf("DBG sB row(jl=0) n=0..7: ");
-                  for (int nn=0; nn<8; nn++) {
-                      half hv = *reinterpret_cast<half*>(reinterpret_cast<char*>(sB) + swizzle_b128(0, nn));
-                      printf("%.1f ", __half2float(hv));
-                  }
-                  printf("\n");
+//                  //printf("DBG sB row(jl=0) n=0..7: ");
+//                  for (int nn=0; nn<8; nn++) {
+//                      half hv = *reinterpret_cast<half*>(reinterpret_cast<char*>(sB) + swizzle_b128(0, nn));
+//                      printf("%.1f ", __half2float(hv));
+//                  }
+//                  printf("\n");
               }
-            if (tid==0) printf("DBG descA3=%016llx descB3=%016llx\n", (unsigned long long)make_desc(sA), (unsigned long long)make_desc(sB));
+//            if (tid==0) printf("DBG descA3=%016llx descB3=%016llx\n", (unsigned long long)make_desc(sA), (unsigned long long)make_desc(sB));
 
             __syncthreads();
             wgmma_fence();
