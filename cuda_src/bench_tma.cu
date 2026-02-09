@@ -159,26 +159,29 @@ gae_tma_kernel(const half* __restrict__ Q,
     float* myO      = O + qkv_off + (long long)row_tile * M_TILE * D_HEAD;
 
     extern __shared__ char smem_raw[];
-    // Layout: sQ(16384) | sA(2048) | sB0(2048) | sB1(2048) | mbar0(8) | mbar1(8) | mbar2(8) | mbar3(8)
+    // Layout: sQ(16384) | sA(2048) | sB0(2048) | sB1(2048) | mbar0(16) | mbar1(16) | mbar2(16) | mbar3(16)
     // sB buffers must be 128B aligned
     // sQ_full at offset 0: 16384 bytes (128-aligned: yes)
     // sA at offset 16384: 2048 bytes
     // sB0 at offset 18432: 2048 bytes (18432 = 144*128, 128-aligned: yes)
     // sB1 at offset 20480: 2048 bytes (20480 = 160*128, 128-aligned: yes)
-    // mbar0 at offset 22528: 8 bytes
-    // mbar1 at offset 22536: 8 bytes
-    // mbar2 at offset 22544: 8 bytes
-    // mbar3 at offset 22552: 8 bytes
+    // mbar0 at offset 22528: 16 bytes
+    // mbar1 at offset 22544: 16 bytes
+    // mbar2 at offset 22560: 16 bytes
+    // mbar3 at offset 22576: 16 bytes
     half* sQ_full = reinterpret_cast<half*>(smem_raw);
     half* sA      = reinterpret_cast<half*>(smem_raw + SMEM_Q_BYTES);
     half* sB0     = reinterpret_cast<half*>(smem_raw + SMEM_Q_BYTES + TILE_A_BYTES);
     half* sB1     = reinterpret_cast<half*>(smem_raw + SMEM_Q_BYTES + TILE_A_BYTES + TILE_B_BYTES);
-    uint64_t* mbarriers = reinterpret_cast<uint64_t*>(
+    struct alignas(16) Mbarrier {
+        uint64_t data[2];
+    };
+    Mbarrier* mbarriers = reinterpret_cast<Mbarrier*>(
         smem_raw + SMEM_Q_BYTES + TILE_A_BYTES + 2 * TILE_B_BYTES);
-    uint64_t* mbar0 = &mbarriers[0];
-    uint64_t* mbar1 = &mbarriers[1];
-    uint64_t* mbar2 = &mbarriers[2];
-    uint64_t* mbar3 = &mbarriers[3];
+    uint64_t* mbar0 = mbarriers[0].data;
+    uint64_t* mbar1 = mbarriers[1].data;
+    uint64_t* mbar2 = mbarriers[2].data;
+    uint64_t* mbar3 = mbarriers[3].data;
 
     int tid = threadIdx.x;
     bool is_compute = tid < WARPGROUP;
