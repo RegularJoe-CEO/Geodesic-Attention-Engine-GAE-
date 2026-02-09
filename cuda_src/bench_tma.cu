@@ -147,7 +147,6 @@ gae_tma_kernel(const half* __restrict__ Q,
                const __grid_constant__ CUtensorMap tma_K,
                const __grid_constant__ CUtensorMap tma_V,
                  int seq_len, int num_heads) {
-    asm volatile(".maxnreg 128;\n");
     int row_tile = blockIdx.x;
     int head     = blockIdx.y;
     int batch    = blockIdx.z;
