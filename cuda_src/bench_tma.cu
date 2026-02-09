@@ -158,7 +158,7 @@ gae_tma_kernel(const half* __restrict__ Q,
     const half* myV = V + qkv_off;
     float* myO      = O + qkv_off + (long long)row_tile * M_TILE * D_HEAD;
 
-    extern __shared__ char smem_raw[];
+    extern __shared__ __align__(128) char smem_raw[];
     // Layout: sQ(16384) | sA(2048) | sB0(2048) | sB1(2048) | mbar0(16) | mbar1(16) | mbar2(16) | mbar3(16)
     // sB buffers must be 128B aligned
     // sQ_full at offset 0: 16384 bytes (128-aligned: yes)
